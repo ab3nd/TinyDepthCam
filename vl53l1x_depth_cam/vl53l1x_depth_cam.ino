@@ -17,20 +17,17 @@ VL53L1_DEV                     Dev = &dev;
 #define INTER_MEASUREMENT_PERIOD_MS 55
 
 int status;
-VL53L1_UserRoi_t RoiConfig;
 
-//12x12 because it's a 16x16 array and we're reading it in 4x4 chunks
-//int16_t depths[12*12];
+// 16 configurations, describing each of the ROIs for sensing
+VL53L1_UserRoi_t ROIConfigs[16];
+// 16 results, one for each ROI
+int16_t depths[16];
 
-//Arduino can't cope, library already uses too much memory
-//int16_t depths[6*6];
-int16_t depths[4*4];
+//For holding the ranging data
+static VL53L1_RangingMeasurementData_t RangingData;
   
 void setup()
 {
-  uint8_t byteData;
-  uint16_t wordData;
-
   Wire.begin();
   Wire.setClock(400000);
   Serial.begin(115200);
@@ -42,16 +39,6 @@ void setup()
 
   VL53L1_software_reset(Dev);
 
-//  VL53L1_RdByte(Dev, 0x010F, &byteData);
-//  Serial.print(F("VL53L1X Model_ID: "));
-//  Serial.println(byteData, HEX);
-//  VL53L1_RdByte(Dev, 0x0110, &byteData);
-//  Serial.print(F("VL53L1X Module_Type: "));
-//  Serial.println(byteData, HEX);
-//  VL53L1_RdWord(Dev, 0x010F, &wordData);
-//  Serial.print(F("VL53L1X: "));
-//  Serial.println(wordData, HEX);
-
   status = VL53L1_WaitDeviceBooted(Dev);
   status = VL53L1_DataInit(Dev);
   status = VL53L1_StaticInit(Dev);
@@ -59,92 +46,38 @@ void setup()
   status = VL53L1_SetMeasurementTimingBudgetMicroSeconds(Dev, MEASUREMENT_BUDGET_MS * 1000);
   status = VL53L1_SetInterMeasurementPeriodMilliSeconds(Dev, INTER_MEASUREMENT_PERIOD_MS);
 
-  RoiConfig.TopLeftX = 0;
-  RoiConfig.TopLeftY = 0;
-  RoiConfig.BotRightX = RoiConfig.TopLeftX + 3;
-  RoiConfig.BotRightY = RoiConfig.BotRightY + 3;
-  status = VL53L1_SetUserROI(Dev, &RoiConfig);
-
+  //Set up 16 ROIs
+  for(int x = 0; x < 4; x++){
+    for(int y = 0; y < 4; y++){
+      //An ROI is a top left x, top left y, bottom left x, bottom left y
+      ROIConfigs[(x*4) + y] = {4*x, (15-4*y), (4*x+3), (15-4*y-3)};
+    }
+  }
 }
 
 void loop() {
-  static uint16_t startMs = millis();
-  uint8_t isReady;
-
-  // non-blocking check for data ready
-  status = VL53L1_GetMeasurementDataReady(Dev, &isReady);
-
-  if(!status)
-  {
-    if(isReady) //Data ready
-    {
-//      Serial.print(RoiConfig.TopLeftX);
-//      Serial.print(',');
-//      Serial.println(RoiConfig.TopLeftY);
-      
-      static VL53L1_RangingMeasurementData_t RangingData;
+  for (int ii = 0; ii < 16; ii++) {
+    // Set up the ROI
+    status = VL53L1_SetUserROI(Dev, &ROIConfigs[ii]);
+    // Blocks here until we have the measurement
+    status = VL53L1_WaitMeasurementDataReady(Dev);
+    if (!status){
       status = VL53L1_GetRangingMeasurementData(Dev, &RangingData);
-      if(!status)
-      {
-        if(RangingData.RangeStatus == 0){
-          //Serial.print(RoiConfig.TopLeftX/4 + ((RoiConfig.TopLeftY/4) * 4));
-          //Serial.print(",");
-          //Serial.println(RangingData.RangeMilliMeter);
-          
-          depths[RoiConfig.TopLeftX/4 + ((RoiConfig.TopLeftY/4) * 4)] = RangingData.RangeMilliMeter;
-        }
-        else
-        {
-          //Serial.print(RoiConfig.TopLeftX/4 + ((RoiConfig.TopLeftY/4) * 4));
-          //Serial.println(", BAD");
-          
-          depths[RoiConfig.TopLeftX/4 + ((RoiConfig.TopLeftY/4) * 4)] = 0;
-        }
-      }
-      
-      //Update the ROI
-      RoiConfig.TopLeftX += 4;
-      if(RoiConfig.TopLeftX > 12)
-      {
-        //End of row, roll to next row
-        RoiConfig.TopLeftX = 0;
-        RoiConfig.TopLeftY += 4;
-        if(RoiConfig.TopLeftY > 12)
-        {
-          //End of device, reset to start
-          RoiConfig.TopLeftY = 0;  
-          //And dump the range data
-          dump_depths();  
-        }
-      }
-      //4x4 is the minimum ROI
-      RoiConfig.BotRightX = RoiConfig.TopLeftX + 3;
-      RoiConfig.BotRightY = RoiConfig.BotRightY + 3;
-
-      status = VL53L1_SetUserROI(Dev, &RoiConfig);
-            
-      // Range again
-      VL53L1_ClearInterruptAndStartMeasurement(Dev);
-      startMs = millis();
     }
-    else if((uint16_t)(millis() - startMs) > VL53L1_RANGE_COMPLETION_POLLING_TIMEOUT_MS)
+    VL53L1_clear_interrupt_and_enable_next_range(Dev, VL53L1_DEVICEMEASUREMENTMODE_SINGLESHOT);
+    if (status == 0) 
     {
-      //Serial.println(F("Timeout waiting for data ready."));
-      VL53L1_ClearInterruptAndStartMeasurement(Dev);
-      startMs = millis();
+      //Got a valid distance
+      depths[ii] = RangingData.RangeMilliMeter;
     }
   }
-  else
-  {
-    Serial.print(F("Error getting data ready: "));
-    Serial.println(status);    
-  }
+  dump_depths();
 }
 
 void dump_depths()
 {
   Serial.print(depths[0]);
-  for(int idx=1; idx < (4*4); idx++)
+  for(int idx=1; idx < 16; idx++)
   {
     Serial.print(",");
     Serial.print(depths[idx]);
