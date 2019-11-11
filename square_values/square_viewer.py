@@ -9,7 +9,12 @@ import pprint
 import pygame
 
 def map(x, in_min, in_max, out_min, out_max):
-	return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+	try:
+		return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+	except ZeroDivisionError:
+		# Caused by in_max and in_min being the same. This isn't a great fix...
+		return 0
+
 
 pygame.init()
 
