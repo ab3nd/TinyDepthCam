@@ -4,8 +4,6 @@
 VL53L1_Dev_t                   dev;
 VL53L1_DEV                     Dev = &dev;
 
-
-
 // Timing budget set through VL53L1_SetMeasurementTimingBudgetMicroSeconds().
 #define MEASUREMENT_BUDGET_MS 50
 
@@ -42,15 +40,29 @@ void setup()
   status = VL53L1_WaitDeviceBooted(Dev);
   status = VL53L1_DataInit(Dev);
   status = VL53L1_StaticInit(Dev);
-  status = VL53L1_SetDistanceMode(Dev, VL53L1_DISTANCEMODE_SHORT);
-  status = VL53L1_SetMeasurementTimingBudgetMicroSeconds(Dev, MEASUREMENT_BUDGET_MS * 1000);
-  status = VL53L1_SetInterMeasurementPeriodMilliSeconds(Dev, INTER_MEASUREMENT_PERIOD_MS);
 
+  //Slower ranging mode, I want that 100Hz/1.3m range sweetness
+  //status = VL53L1_SetDistanceMode(Dev, VL53L1_DISTANCEMODE_SHORT);
+  //status = VL53L1_SetMeasurementTimingBudgetMicroSeconds(Dev, MEASUREMENT_BUDGET_MS * 1000);
+  //status = VL53L1_SetInterMeasurementPeriodMilliSeconds(Dev, INTER_MEASUREMENT_PERIOD_MS);
+
+  //Fast mode needs these options in this order according to app note AN5263 from ST
+  //https://www.st.com/content/ccc/resource/technical/document/application_note/group1/13/fd/27/76/de/e8/46/4d/DM00566701/files/DM00566701.pdf/jcr:content/translations/en.DM00566701.pdf  
+  status = VL53L1_SetPresetMode(Dev, VL53L1_PRESETMODE_LITE_RANGING);     
+  status = VL53L1_SetDistanceMode(Dev, VL53L1_DISTANCEMODE_SHORT);     
+  status = VL53L1_SetMeasurementTimingBudgetMicroSeconds(Dev, 10000);     
+
+  //First measurement is apparently bad, get it and throw it away
+  status = VL53L1_StartMeasurement(Dev);
+  status = VL53L1_WaitMeasurementDataReady(Dev);
+  status = VL53L1_GetRangingMeasurementData(Dev,&RangingData);
+  status = VL53L1_ClearInterruptAndStartMeasurement(Dev);
+  
   //Set up 16 ROIs
-  for(int x = 0; x < 4; x++){
-    for(int y = 0; y < 4; y++){
+  for(int y = 0; y < 4; y++){
+    for(int x = 0; x < 4; x++){
       //An ROI is a top left x, top left y, bottom left x, bottom left y
-      ROIConfigs[(x*4) + y] = {4*x, (15-4*y), (4*x+3), (15-4*y-3)};
+      ROIConfigs[(x*4) + y] = {(x*4), 15-(y*4), (x*4) + 3, (15-(y*4)) - 3};
     }
   }
 }
@@ -63,13 +75,15 @@ void loop() {
     status = VL53L1_WaitMeasurementDataReady(Dev);
     if (!status){
       status = VL53L1_GetRangingMeasurementData(Dev, &RangingData);
+      if (status == 0) 
+      {
+        //Got a valid distance
+        depths[ii] = RangingData.RangeMilliMeter;
+      }    
     }
     VL53L1_clear_interrupt_and_enable_next_range(Dev, VL53L1_DEVICEMEASUREMENTMODE_SINGLESHOT);
-    if (status == 0) 
-    {
-      //Got a valid distance
-      depths[ii] = RangingData.RangeMilliMeter;
-    }
+    //VL53L1_ClearInterruptAndStartMeasurement(Dev);
+
   }
   dump_depths();
 }

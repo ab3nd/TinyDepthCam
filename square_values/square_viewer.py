@@ -39,6 +39,10 @@ screen = pygame.display.set_mode((screen_w, screen_h))
  
 running = True
 
+
+seen_min = 0
+seen_max = 0
+
 while running:
 	#Handle pygame events
     for event in pygame.event.get():
@@ -46,6 +50,9 @@ while running:
             running = False
 
 	line = serial_port.readline()
+
+	# Debug, generates a line
+	#line = ", ".join([str(x) for x in range(0, 256, 4)])
 
 	try:
 		values = [float(x) for x in line.split(',')]
@@ -56,11 +63,14 @@ while running:
 	side_len = int(math.floor(math.sqrt(len(values))))
 	values = values[:int(side_len * side_len)]
 
+	print(values)
+
+	seen_max = max(seen_max, max(values))
+	seen_min = min(seen_min, min(values))
+
 	#Convert values to red/blue
 	#Assumes max value is 1000, min val is 0
-	colors = [(int(map(x, 0, 1000, 0, 255)), 0, int(255 - map(x, 0, 1000, 0, 255))) for x in values]
-
-	pprint.pprint(colors)
+	colors = [(int(map(x, seen_min, seen_max, 0, 255)), 0, int(255 - map(x, seen_min, seen_max, 0, 255))) for x in values]
 
 	#Pixels per value
 	ppv = screen_w/side_len
