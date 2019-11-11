@@ -69,8 +69,6 @@ void setup()
 
 void loop() {
   for (int ii = 0; ii < 16; ii++) {
-    // Set up the ROI
-    status = VL53L1_SetUserROI(Dev, &ROIConfigs[ii]);
     // Blocks here until we have the measurement
     status = VL53L1_WaitMeasurementDataReady(Dev);
     if (!status){
@@ -81,8 +79,11 @@ void loop() {
         depths[ii] = RangingData.RangeMilliMeter;
       }    
     }
-    VL53L1_clear_interrupt_and_enable_next_range(Dev, VL53L1_DEVICEMEASUREMENTMODE_SINGLESHOT);
-    //VL53L1_ClearInterruptAndStartMeasurement(Dev);
+    // Set up the ROI
+    status = VL53L1_SetUserROI(Dev, &ROIConfigs[ii]);
+    
+    //VL53L1_clear_interrupt_and_enable_next_range(Dev, VL53L1_DEVICEMEASUREMENTMODE_SINGLESHOT);
+    VL53L1_ClearInterruptAndStartMeasurement(Dev);
 
   }
   dump_depths();
